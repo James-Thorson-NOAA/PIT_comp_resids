@@ -163,6 +163,7 @@ g <- ggplot(lcboot, aes(Exp, Pearson, color=Nsamp_adj)) +
   facet_wrap("Fleet", scales='free_x',  ncol=1)
 ggsave("plots/null_vs_exp.png", g, width=7, height=5)
 g <- ggplot(lcboot, aes(Exp, Obs, color=abs(Pearson)>5))+
+  geom_abline(slope=1, intercept=0)+
   geom_point(alpha=.25) + scale_x_log10() + scale_y_log10() +
   facet_wrap("Fleet", scales='free_x',  ncol=1)
 ggsave("plots/obs_vs_exp.png", g, width=7, height=5)
