@@ -31,28 +31,31 @@ run_model(499:500, model.name='BSAI_FHS', clean.files=FALSE)
 
 ### Do the PIT calculations
 
-## read in each simulated data set and the original. Could read
-## in from full ss_new but that'd be slower... this still takes a
-## few minutes at least
-lc <- array(NA, dim=c(85, 48, 499))
-## ac <- array(NA, dim=c(1085, 42,499))
-for(boot in 0:498){
-  wd <- paste0('runs/BSAI_FHS/boot_', boot)
-  dat <- SS_readdat(file.path(wd, 'data.ss'), verbose=FALSE)
-  ## ac[,,boot+1] <- dat$agecomp[,-(1:9)] %>% as.matrix
-  lc[,,boot+1] <- dat$lencomp[,-(1:6)] %>% as.matrix
-}
-## So first element is the observed data, rest are
-## simulated.
-## saveRDS(lc, file='results/lencomp_boots.RDS')
+## ## read in each simulated data set and the original. Could read
+## ## in from full ss_new but that'd be slower... this still takes a
+## ## few minutes at least
+## lc <- array(NA, dim=c(85, 48, 499))
+## ## ac <- array(NA, dim=c(1085, 42,499))
+## for(boot in 0:498){
+##   wd <- paste0('runs/BSAI_FHS/boot_', boot)
+##   dat <- SS_readdat(file.path(wd, 'data.ss'), verbose=FALSE)
+##   ## ac[,,boot+1] <- dat$agecomp[,-(1:9)] %>% as.matrix
+##   lc[,,boot+1] <- dat$lencomp[,-(1:6)] %>% as.matrix
+## }
+## ## So first element is the observed data, rest are
+## ## simulated.
+## ## saveRDS(lc, file='results/lencomp_boots.RDS')
 lc <- readRDS('results/lencomp_boots.RDS')
 
 
 ## Need to get Pearson residuals, it's long here so pivot wider
-replist <- SS_output('runs/BSAI_FHS/boot_0', covar=FALSE,
-                     printstats=FALSE, verbose=FALSE)
+## replist <- SS_output('runs/BSAI_FHS/boot_0', covar=FALSE,
+##                      printstats=FALSE, verbose=FALSE)
 ##saveRDS(replist, 'results/replist.RDS')
+## dat0 <- SS_readdat('runs/BSAI_FHS/boot_0/data.ss', verbose=FALSE)
+## saveRDS(dat0, 'results/dat0.RDS')
 replist <- readRDS('results/replist.RDS')
+dat0 <- readRDS('results/dat0.RDS')
 
 lc.pearson <- replist$lendbase %>%
   select(Yr, FltSvy=Fleet, Gender=Sex,
@@ -75,9 +78,9 @@ for(y in 1:nrow(lc.pit)){ # loop year
 }
 ## Get back into data.frame and match to Pearson. Note that sex=1
 ## only and I'm not sure if I did this right
-lc.pit <- dat$lencomp %>%
+lc.pit <- dat0$lencomp %>%
   select(Yr, FltSvy, Nsamp) %>%
-  cbind(lc.pit[, 1:length(dat$lbin_vector)]) %>%
+  cbind(lc.pit[, 1:length(dat0$lbin_vector)]) %>%
   filter(Yr>0 & FltSvy>0) %>%
   arrange(Yr, FltSvy)
 names(lc.pit ) <- names(lc.pearson)
@@ -129,18 +132,17 @@ ggsave("plots/compare_resids_years.png", g, width=7, height=5)
 ### Part two is to look at the behavior of Pearson residuals with
 ### the correctly specified model
 
-## Loop through and read in the comp residuals for all boottrap
-## iterations.
-lc.list <- list()
-for(boot in 0:498){ # 0 is the original file
-  ff <- paste0('runs/BSAI_FHS/boot_',boot)
-  out <- SS_output(ff, covar=FALSE, printstats=FALSE, verbose=FALSE)
-  lc.list[[boot+1]] <- select(out$lendbase, Yr, Fleet, Sex, Bin,
-                              Pearson, Obs, Exp, Nsamp_adj) %>% cbind(boot=boot)
-}
-lcboot <- bind_rows(lc.list)
-saveRDS(lcboot, 'results/lcboot.RDS')
-
+## ## Loop through and read in the comp residuals for all boottrap
+## ## iterations.
+## lc.list <- list()
+## for(boot in 0:498){ # 0 is the original file
+##   ff <- paste0('runs/BSAI_FHS/boot_',boot)
+##   out <- SS_output(ff, covar=FALSE, printstats=FALSE, verbose=FALSE)
+##   lc.list[[boot+1]] <- select(out$lendbase, Yr, Fleet, Sex, Bin,
+##                               Pearson, Obs, Exp, Nsamp_adj) %>% cbind(boot=boot)
+## }
+## lcboot <- bind_rows(lc.list)
+## saveRDS(lcboot, 'results/lcboot.RDS')
 
 ## Quick output prep for plotting and analysis
 lcboot <- readRDS('results/lcboot.RDS')
@@ -156,6 +158,17 @@ g <- ggplot(lcboot, aes(Obs, Pearson, color=Nsamp_adj)) +
   geom_point(alpha=.25) + scale_x_log10() +
   facet_wrap("Fleet", scales='free_x',  ncol=1)
 ggsave("plots/null_vs_obs.png", g, width=7, height=5)
+g <- ggplot(lcboot, aes(Exp, Pearson, color=Nsamp_adj)) +
+  geom_point(alpha=.25) + scale_x_log10() +
+  facet_wrap("Fleet", scales='free_x',  ncol=1)
+ggsave("plots/null_vs_exp.png", g, width=7, height=5)
+g <- ggplot(lcboot, aes(Exp, Obs, color=abs(Pearson)>5))+
+  geom_point(alpha=.25) + scale_x_log10() + scale_y_log10() +
+  facet_wrap("Fleet", scales='free_x',  ncol=1)
+ggsave("plots/obs_vs_exp.png", g, width=7, height=5)
+
+
+
 g <- lcboot %>%
   ggplot(aes(x=factor(Yr), y=Pearson)) + geom_boxplot() +
   coord_cartesian(ylim=c(-2.5,5))+
