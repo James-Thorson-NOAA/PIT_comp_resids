@@ -69,11 +69,17 @@ lc.pearson <- replist$lendbase %>%
 ## Now calculate PIT resids
 lc.pit <- array(NA, dim=c(dim(lc)[1:2]))
 set.seed(1214124)
-jit <- function(x) x+runif(length(x),-.5,.5)
+#jit <- function(x) x+runif(length(x),-.5,.5)
+#for(y in 1:nrow(lc.pit)){ # loop year
+#  for(b in 1:ncol(lc.pit)){ # loop length bins
+#    ## P(obs data>simulated data)
+#    lc.pit[y,b] <- qnorm(mean(jit(lc[y,b,1])>jit(lc[y,b,-1])))
+#  }
+#}
 for(y in 1:nrow(lc.pit)){ # loop year
   for(b in 1:ncol(lc.pit)){ # loop length bins
     ## P(obs data>simulated data)
-    lc.pit[y,b] <- qnorm(mean(jit(lc[y,b,1])>jit(lc[y,b,-1])))
+    lc.pit[y,b] <- runif( n=1, min=mean(lc[y,b,1]>lc[y,b,-1]), max=mean(lc[y,b,1]>=lc[y,b,-1]) )
   }
 }
 ## Get back into data.frame and match to Pearson. Note that sex=1
