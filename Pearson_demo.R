@@ -29,6 +29,31 @@ function(
   if(output == "prob_a") return(prob_a)
 }
 
+ddm <-
+function(
+         x,
+         prob,
+         size = sum(x),
+         theta,
+         beta = theta * size,
+         log = FALSE,
+         output = "loglike" ){
+
+  loglike = lgamma(size+1) - sum(lgamma(x+1)) + lgamma(theta*size) - lgamma(size + beta)
+  for( xI in seq_along(x) ){
+    loglike = loglike + lgamma(x[xI] + beta*prob[xI]) - lgamma(beta * prob[xI]);
+  }
+  n_effective = 1/(1+theta) + size*(theta/(1+theta))
+  if(output=="loglike") return(loglike);
+  if(output=="n_effective") return(n_effective);
+}
+
+dmultinom <-
+function(x, ..., theta, log, output="loglike"){
+  if(output=="loglike") return(stats::dmultinom(x=x, ..., log=TRUE))
+  if(output=="n_effective") return(sum(x))
+}
+
 #Z = 0.2
 #selex_50 = 3
 #selex_slope = 1
@@ -55,25 +80,29 @@ function(
     selex_slope = params$selex_slope,
     Z = params$Z,
     output = "prob_a",
-    sigmaR = sigmaR
+    sigmaR = sigmaR    # Should be 0 during fitting
   )
+  n_effective = likelihood(x=C_a, prob=prob_a, theta=exp(params$ln_theta), output="n_effective")
 
+  # Replace this simulation for the DM with direct draws from a compound Dirichlet-multinomial process
   Csim_ar = matrix(NA, nrow=length(prob_a), ncol=100)
   for( rI in 1:100 ){
+    n_sim = floor(n_effective) + ifelse(runif(1)<(n_effective%%1),1,0)
     Csim_ar[,rI] = simulate_data(
       selex_50 = params$selex_50,
       selex_slope = params$selex_slope,
       Z = params$Z,
       output = "C_a",
-      sigmaR = sigmaR,
-      n_samp = n_samp
+      sigmaR = sigmaR,  # Should be 0 during fitting
+      n_samp = n_sim
     )
+    Csim_ar[,rI] = Csim_ar[,rI] / sum(Csim_ar[,rI]) * n_samp
   }
 
   #
-  nll = -1 * dmultinom(x=C_a, prob=prob_a, log=TRUE)
+  nll = -1 * likelihood(x=C_a, prob=prob_a, theta=exp(params$ln_theta), log=TRUE)
   Chat_a = prob_a * sum(C_a)
-  pearson_a = (C_a-Chat_a) / sqrt(sum(C_a) * prob_a * (1-prob_a))
+  pearson_a = (C_a-Chat_a) / sqrt(n_effective * prob_a * (1-prob_a)) / (sum(C_a)/n_effective) # 3rd piece is a correction for sample sizes vs. DM variance
   PIT_a = runif( n=length(prob_a), min=rowSums(C_a%o%rep(1,100)<Csim_ar), max=rowSums(C_a%o%rep(1,100)<=Csim_ar) ) / 100
 
   #
@@ -88,22 +117,25 @@ function(
 parlist = list(
   Z = 0.2,
   selex_50 = 3,
-  selex_slope = 1
+  selex_slope = 1,
+  ln_theta = 0
 )
 
 if( FALSE ){
   # Explore
-  C_a = simulate_data( sigmaR = 0 )
+  C_a = simulate_data( sigmaR = 0.6 )
   parvec = unlist(parlist)
 
   # Run with initial value
-  fit_model( parvec=unlist(parlist), parlist=parlist, C_a=C_a )
+  fit_model( parvec=unlist(parlist), parlist=parlist, C_a=C_a, likelihood=ddm )
   # Optimize
   parhat = nlminb(
     start = unlist(parlist),
     parlist=parlist,
     C_a=C_a,
-    objective = fit_model
+    objective = fit_model,
+    likelihood = ddm,
+    control = list(trace=1)
   )
   # Get Pearson residuals
   fit_model( parvec=parhat$par, parlist=parlist, C_a=C_a, output="pearson_a" )
@@ -115,12 +147,14 @@ if( FALSE ){
 # Problems with Pearson arise with n_samp <= 100, i.e., low bin observations
 ##############
 
-sigmaR = 0  # If >0, then model is mis-specified with respective to disperion
+sigmaR = 1.0  # If >0, then model is mis-specified with respective to disperion
 n_samp = 100 # Affects power to detect mis-specification
+likelihood = list( dmultinom, ddm )[[2]]
 
 qPIT_ar = PIT_ar = pearson_ar = matrix(NA, nrow=30, ncol=100)
 
 for( rI in 1:100 ){
+  set.seed(rI + 101)
   # Simulate
   C_a = simulate_data(
     sigmaR = sigmaR,
@@ -133,12 +167,15 @@ for( rI in 1:100 ){
     C_a=C_a,
     objective = fit_model,
     sigmaR = 0,
-    n_samp = n_samp
+    n_samp = n_samp,
+    likelihood = likelihood,
+    control = list(trace=1)
   )
   # Get Pearson residuals
-  pearson_ar[,rI] = fit_model( parvec=parhat$par, parlist=parlist, C_a=C_a, n_samp=n_samp, output="residuals" )[,'pearson_a']
-  PIT_ar[,rI] = fit_model( parvec=parhat$par, parlist=parlist, C_a=C_a, n_samp=n_samp, output="residuals" )[,'PIT_a']
-  qPIT_ar[,rI] = fit_model( parvec=parhat$par, parlist=parlist, C_a=C_a, n_samp=n_samp, output="residuals" )[,'qPIT_a']
+  resid_table = fit_model( parvec=parhat$par, parlist=parlist, C_a=C_a, n_samp=n_samp, likelihood=likelihood, output="residuals" )
+  pearson_ar[,rI] = resid_table[,'pearson_a']
+  PIT_ar[,rI] = resid_table[,'PIT_a']
+  qPIT_ar[,rI] = resid_table[,'qPIT_a']
   # Csim_ar = fit_model( parvec=parhat$par, parlist=parlist, C_a=C_a, n_samp=n_samp, output="Csim_ar" )
 }
 
@@ -148,7 +185,8 @@ Hist = function(x, threshold=5, ...){
   hist(x, ...)
 }
 
-ThorsonUtilities::save_fig( file=paste0("C:/Users/James.Thorson/Desktop/Work files/Collaborations/2021 -- Pearson residuals for comps/demo"), width=6, height=6 )
+setwd("C:/Users/James.Thorson/Desktop/Git/PIT_comp_resids")
+ThorsonUtilities::save_fig( file=paste0(getwd(),"/demo"), width=6, height=6 )
   par(mfrow=c(2,1))
   xmax = 5.1
   xset = seq( -1*xmax, xmax, by=0.1)
